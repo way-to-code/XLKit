@@ -140,10 +140,25 @@ public struct XLSXEngine {
         sheet.state == .visible ? "" : " state=\"\(sheet.state.rawValue)\""
     }
     
+    /// Index of the sheet Excel opens on: the first visible one, falling back to 0.
+    /// Shared by `<workbookView activeTab>` and per-worksheet `tabSelected` so the two never disagree.
+    static func activeSheetIndex(for sheets: [Sheet]) -> Int {
+        sheets.firstIndex { $0.state == .visible } ?? 0
+    }
+
     /// Renders the optional `activeTab` attribute for `<workbookView>`; emitted only when the first visible sheet is not at index 0, otherwise Excel refuses to open a workbook whose default-active sheet is hidden.
     static func activeTabAttribute(for sheets: [Sheet]) -> String {
-        let firstVisible = sheets.firstIndex { $0.state == .visible } ?? 0
+        let firstVisible = activeSheetIndex(for: sheets)
         return firstVisible > 0 ? " activeTab=\"\(firstVisible)\"" : ""
+    }
+
+    /// Renders the `<sheetView>` element for a worksheet. `tabSelected="1"` may only appear on the
+    /// active sheet: when several sheets carry it, Excel for Windows opens the workbook with those
+    /// sheets grouped, and editing is blocked as soon as a protected sheet is part of the group.
+    static func sheetViewXML(isActive: Bool) -> String {
+        isActive
+            ? "<sheetView tabSelected=\"1\" workbookViewId=\"0\"/>"
+            : "<sheetView workbookViewId=\"0\"/>"
     }
     
     /// Renders a `<sheetProtection>` element. Each attribute is emitted only when its property is non-nil, so the resulting element carries exactly the choices the caller made.
@@ -440,8 +455,10 @@ public struct XLSXEngine {
     }
     
     private static func generateWorksheets(worksheetsDir: URL, workbook: Workbook, formatMapping: [String: Int], sharedStrings: [String: Int]) throws {
-        for sheet in workbook.getSheets() {
-            let content = generateWorksheetXML(sheet: sheet, formatMapping: formatMapping, sharedStrings: sharedStrings)
+        let sheets = workbook.getSheets()
+        let activeIndex = activeSheetIndex(for: sheets)
+        for (index, sheet) in sheets.enumerated() {
+            let content = generateWorksheetXML(sheet: sheet, isActive: index == activeIndex, formatMapping: formatMapping, sharedStrings: sharedStrings)
             try content.write(to: worksheetsDir.appendingPathComponent("sheet\(sheet.id).xml"), atomically: true, encoding: .utf8)
             
             // Generate worksheet relationships if there are images
@@ -474,7 +491,7 @@ public struct XLSXEngine {
         try content.write(to: worksheetRelsDir.appendingPathComponent("sheet\(sheet.id).xml.rels"), atomically: true, encoding: .utf8)
     }
     
-    private static func generateWorksheetXML(sheet: Sheet, formatMapping: [String: Int], sharedStrings: [String: Int]) -> String {
+    private static func generateWorksheetXML(sheet: Sheet, isActive: Bool, formatMapping: [String: Int], sharedStrings: [String: Int]) -> String {
         var content = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         content += "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
         
@@ -486,7 +503,7 @@ public struct XLSXEngine {
         
         // Add sheet views
         content += "<sheetViews>"
-        content += "<sheetView tabSelected=\"1\" workbookViewId=\"0\"/>"
+        content += sheetViewXML(isActive: isActive)
         content += "</sheetViews>"
         
         // Add sheet format properties

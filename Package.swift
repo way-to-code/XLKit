@@ -58,7 +58,7 @@ let package = Package(
         ),
         .testTarget(
             name: "XLKitTests",
-            dependencies: ["XLKit"],
+            dependencies: ["XLKit", "ZIPFoundation"],
             swiftSettings: [
                 .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
             ]
